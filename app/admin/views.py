@@ -5,7 +5,7 @@
 from . import admin
 from flask import render_template, redirect, url_for, flash, session, request
 from app.admin.forms import LoginForm, TagForm, MovieForm,PreviewForm
-from app.models import Admin, Tag, db, Movie,Preview
+from app.models import Admin, Tag, db, Movie,Preview,User
 from functools import wraps  # 装饰器
 from app import app
 import os, uuid, datetime
@@ -284,7 +284,8 @@ def preview_del(id=None):
 @admin_login_req
 def preview_edit(id):
     form=PreviewForm()
-    preview=Movie.query.get_or_404(id)
+    form.logo.validators=[] #数据库里有可能有，有可能吴，为空时不修改
+    preview=Preview.query.get_or_404(id)
     if request.method=="GET":
         form.title.data=preview.title
     if form.validate_on_submit():
@@ -301,16 +302,22 @@ def preview_edit(id):
     return render_template("admin/preview_edit.html",form=form,preview=preview)
 
 
-@admin.route("/user/view/")
+@admin.route("/user/view/<int:id>/",methods=["GET"])
 @admin_login_req
-def user_view():
-    return render_template("admin/user_view.html")
+def user_view(id=None):
+    user=User.query.get_or_404(int(id))
+    return render_template("admin/user_view.html",user=user)
 
-
-@admin.route("/user/list/")
+#会员列表
+@admin.route("/user/list/<int:page>/",methods=["GET"])
 @admin_login_req
-def user_list():
-    return render_template("admin/user_list.html")
+def user_list(page):
+    if page is None:
+        page = 1
+    page_data = User.query.order_by(
+        User.addtime.desc()
+    ).paginate(page=page, per_page=10)  # 传入分页
+    return render_template("admin/user_list.html",page_data=page_data)
 
 
 @admin.route("/comment/list/")
