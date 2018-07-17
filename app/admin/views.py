@@ -259,10 +259,46 @@ def preview_add():
 
 
 # 上映预告列表
-@admin.route("/preview/list/")
+@admin.route("/preview/list/<int:page>/", methods=["GET"])
 @admin_login_req
-def preview_list():
-    return render_template("admin/preview_list.html")
+def preview_list(page):
+    if page is None:
+        page = 1
+    page_data = Preview.query.order_by(
+        Preview.addtime.desc()
+    ).paginate(page=page, per_page=5)  # 传入分页
+    return render_template("admin/preview_list.html",page_data=page_data)
+
+#删除预告
+@admin.route("/preview/del/<int:id>/", methods=["GET"])
+@admin_login_req
+def preview_del(id=None):
+    preview=Preview.query.filter_by(id=id).first_or_404()
+    db.session.delete(preview)
+    db.session.commit()
+    flash("删除预告成功","ok")
+    return redirect(url_for('admin.preview_list',page=1))
+
+#编辑预告
+@admin.route("/preview/edit/<int:id>/", methods=["GET","POST"])
+@admin_login_req
+def preview_edit(id):
+    form=PreviewForm()
+    preview=Movie.query.get_or_404(id)
+    if request.method=="GET":
+        form.title.data=preview.title
+    if form.validate_on_submit():
+        data=form.data
+        if form.logo.data:
+            file_logo = secure_filename(form.logo.data.filename)
+            preview.logo = change_filename(file_logo)
+            # 文件保存
+            form.logo.data.save(app.config["UP_DIR"] + preview.logo)
+        preview.title=data["title"]
+        db.session.commit()
+        flash("修改预告成功！","ok")
+        return redirect(url_for('admin.preview_edit',id=id))
+    return render_template("admin/preview_edit.html",form=form,preview=preview)
 
 
 @admin.route("/user/view/")
