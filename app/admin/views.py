@@ -4,14 +4,20 @@
 # Date: 2018-07-05
 from . import admin
 from flask import render_template, redirect, url_for, flash, session, request
-from app.admin.forms import LoginForm, TagForm, MovieForm,PreviewForm
-from app.models import Admin, Tag, db, Movie,Preview,User
+from app.admin.forms import LoginForm, TagForm, MovieForm, PreviewForm,PwdForm
+from app.models import Admin, Tag, db, Movie, Preview, User, Comment,Moviecol,Oplog,Adminlog,Userlog
 from functools import wraps  # 装饰器
 from app import app
 import os, uuid, datetime
 from werkzeug.utils import secure_filename  # filename 转化为安全的
 
-
+#上下文处理器，封装全局变量，展现在模板里面
+@admin.context_processor
+def tpl_extra():
+    data=dict(
+        online_time=datetime.datetime.now().strftime("%Y-%m-%d  %H:%M:%S")#转化为看得懂的格式
+    )
+    return data
 # 修改文件名称
 def change_filename(filename):
     fileinfo = os.path.splitext(filename)
@@ -42,9 +48,10 @@ def login():
         data = form.data
         admin = Admin.query.filter_by(name=data["account"]).first()
         if not admin.check_pwd(data["pwd"]):
-            flash("密码错误!")
+            flash("密码错误!",'err')
             return redirect(url_for('admin.login'))
         session["admin"] = data["account"]
+        session['admin_id']=admin.id
         return redirect(request.args.get("next") or url_for("admin.index"))
     return render_template("admin/login.html", form=form)
 
@@ -52,16 +59,27 @@ def login():
 @admin.route("/logout/")
 @admin_login_req
 def logout():
-    print(session["admin"])
     session.pop("admin", None)
-    print(session["admin"])
+    session.pop("admin_id", None)
     return redirect(url_for("admin.login"))
 
 
-@admin.route("/pwd/")
+#修改密码
+@admin.route("/pwd/",methods=["GET","POST"])
 @admin_login_req
 def pwd():
-    return render_template("admin/pwd.html")
+    form=PwdForm()
+    if form.validate_on_submit():
+        data=form.data
+        admin=Admin.query.filter_by(name=session["admin"]).first()
+        from werkzeug.security import generate_password_hash
+        admin.pwd=generate_password_hash(data["new_pwd"])
+        db.session.add(admin)
+        db.session.commit()
+        flash("修改密码成功！","ok")
+        # 跳出到登录页
+        redirect(url_for('admin.logout'))
+    return render_template("admin/pwd.html",form=form)
 
 
 # 编辑标签
@@ -82,6 +100,13 @@ def tag_add():
         db.session.add(tag)
         db.session.commit()
         flash("添加标签成功！", "ok")
+        oplog=Oplog(
+            admin_id=session["admin_id"],
+            ip=request.remote_addr,
+            reason="添加标签%s" % data["name"]
+        )
+        db.session.add(oplog)
+        db.session.commit()
         return redirect(url_for("admin.tag_add"))
     return render_template("admin/tag_add.html", form=form)
 
@@ -94,7 +119,7 @@ def tag_list(page):
         page = 1
     page_data = Tag.query.order_by(
         Tag.addtime
-    ).paginate(page=page, per_page=5)  # 传入分页
+    ).paginate(page=page, per_page=10)  # 传入分页
     return render_template("admin/tag_list.html", page_data=page_data)
 
 
@@ -136,7 +161,7 @@ def movie_add():
     form = MovieForm()
     if form.validate_on_submit():
         data = form.data
-        #获取filename
+        # 获取filename
         file_url = secure_filename(form.url.data.filename)  # 安全性
         file_logo = secure_filename(form.logo.data.filename)
         if not os.path.exists(app.config["UP_DIR"]):
@@ -217,7 +242,7 @@ def movie_edit(id=None):
         if form.logo.data:
             file_logo = secure_filename(form.logo.data.filename)
             movie.logo = change_filename(file_logo)
-            #文件保存
+            # 文件保存
             form.logo.data.save(app.config["UP_DIR"] + movie.logo)
         data = form.data
         movie.star = data["star"]
@@ -235,10 +260,10 @@ def movie_edit(id=None):
 
 
 # 编辑上映预告
-@admin.route("/preview/add/",methods=["GET", "POST"])
+@admin.route("/preview/add/", methods=["GET", "POST"])
 @admin_login_req
 def preview_add():
-    form=PreviewForm()
+    form = PreviewForm()
     if form.validate_on_submit():
         data = form.data
         file_logo = secure_filename(form.logo.data.filename)
@@ -255,7 +280,7 @@ def preview_add():
         db.session.commit()
         flash("添加预告成功！", "ok")
         return redirect(url_for('admin.preview_add'))
-    return render_template("admin/preview_add.html",form=form)
+    return render_template("admin/preview_add.html", form=form)
 
 
 # 上映预告列表
@@ -267,49 +292,52 @@ def preview_list(page):
     page_data = Preview.query.order_by(
         Preview.addtime.desc()
     ).paginate(page=page, per_page=5)  # 传入分页
-    return render_template("admin/preview_list.html",page_data=page_data)
+    return render_template("admin/preview_list.html", page_data=page_data)
 
-#删除预告
+
+# 删除预告
 @admin.route("/preview/del/<int:id>/", methods=["GET"])
 @admin_login_req
 def preview_del(id=None):
-    preview=Preview.query.filter_by(id=id).first_or_404()
+    preview = Preview.query.filter_by(id=id).first_or_404()
     db.session.delete(preview)
     db.session.commit()
-    flash("删除预告成功","ok")
-    return redirect(url_for('admin.preview_list',page=1))
+    flash("删除预告成功", "ok")
+    return redirect(url_for('admin.preview_list', page=1))
 
-#编辑预告
-@admin.route("/preview/edit/<int:id>/", methods=["GET","POST"])
+
+# 编辑预告
+@admin.route("/preview/edit/<int:id>/", methods=["GET", "POST"])
 @admin_login_req
 def preview_edit(id):
-    form=PreviewForm()
-    form.logo.validators=[] #数据库里有可能有，有可能吴，为空时不修改
-    preview=Preview.query.get_or_404(id)
-    if request.method=="GET":
-        form.title.data=preview.title
+    form = PreviewForm()
+    form.logo.validators = []  # 数据库里有可能有，有可能吴，为空时不修改
+    preview = Preview.query.get_or_404(id)
+    if request.method == "GET":
+        form.title.data = preview.title
     if form.validate_on_submit():
-        data=form.data
+        data = form.data
         if form.logo.data:
             file_logo = secure_filename(form.logo.data.filename)
             preview.logo = change_filename(file_logo)
             # 文件保存
             form.logo.data.save(app.config["UP_DIR"] + preview.logo)
-        preview.title=data["title"]
+        preview.title = data["title"]
         db.session.commit()
-        flash("修改预告成功！","ok")
-        return redirect(url_for('admin.preview_edit',id=id))
-    return render_template("admin/preview_edit.html",form=form,preview=preview)
+        flash("修改预告成功！", "ok")
+        return redirect(url_for('admin.preview_edit', id=id))
+    return render_template("admin/preview_edit.html", form=form, preview=preview)
 
 
-@admin.route("/user/view/<int:id>/",methods=["GET"])
+@admin.route("/user/view/<int:id>/", methods=["GET"])
 @admin_login_req
 def user_view(id=None):
-    user=User.query.get_or_404(int(id))
-    return render_template("admin/user_view.html",user=user)
+    user = User.query.get_or_404(int(id))
+    return render_template("admin/user_view.html", user=user)
 
-#会员列表
-@admin.route("/user/list/<int:page>/",methods=["GET"])
+
+# 会员列表
+@admin.route("/user/list/<int:page>/", methods=["GET"])
 @admin_login_req
 def user_list(page):
     if page is None:
@@ -317,25 +345,82 @@ def user_list(page):
     page_data = User.query.order_by(
         User.addtime.desc()
     ).paginate(page=page, per_page=10)  # 传入分页
-    return render_template("admin/user_list.html",page_data=page_data)
+    return render_template("admin/user_list.html", page_data=page_data)
 
 
-@admin.route("/comment/list/")
+# 删除会员
+@admin.route("/user/del/<int:id>/", methods=["GET"])
 @admin_login_req
-def comment_list():
-    return render_template("admin/comment_list.html")
+def user_del(id=None):
+    user = User.query.filter_by(id=id).first_or_404()
+    db.session.delete(user)
+    db.session.commit()
+    flash("用户删除成功", "ok")
+    return redirect(url_for('admin.user_list', page=1))
 
 
-@admin.route("/moviecol/list/")
+# 评论列表
+@admin.route("/comment/list/<int:page>/", methods=["GET"])
 @admin_login_req
-def moviecol_list():
-    return render_template("admin/moviecol_list.html")
+def comment_list(page):
+    if page is None:
+        page = 1
+    page_data = Comment.query.join(Movie).join(User).filter(
+        Movie.id  == Comment.movie_id,
+        User.id   == Comment.user_id
+    ).order_by(
+        Comment.addtime.desc()
+    ).paginate(page=page, per_page=10)  # 传入分页
+    return render_template("admin/comment_list.html", page_data=page_data)
 
 
-@admin.route("/oplog/list/")
+# 删除评论
+@admin.route("/comment/del/<int:id>/", methods=["GET"])
 @admin_login_req
-def oplog_list():
-    return render_template("admin/oplog_list.html")
+def comment_del(id=None):
+    comment = Comment.query.filter_by(id=id).first_or_404()
+    db.session.delete(comment)
+    db.session.commit()
+    flash("评论删除成功", "ok")
+    return redirect(url_for('admin.comment_list', page=1))
+
+
+@admin.route("/moviecol/list/<int:page>/", methods=["GET"])
+@admin_login_req
+def moviecol_list(page):
+    if page is None:
+        page = 1
+    page_data = Moviecol.query.join(Movie).join(User).filter(
+        Movie.id == Moviecol.movie_id,
+        User.id == Moviecol.user_id
+    ).order_by(
+        Moviecol.addtime.desc()
+    ).paginate(page=page, per_page=10)  # 传入分页
+    return render_template("admin/moviecol_list.html",page_data=page_data)
+
+#删除收藏
+@admin.route("/moviecol/del/<int:id>/", methods=["GET"])
+@admin_login_req
+def moviecol_del(id=None):
+    moviecol = Moviecol.query.filter_by(id=id).first_or_404()
+    db.session.delete(moviecol)
+    db.session.commit()
+    flash("删除收藏成功", "ok")
+    return redirect(url_for('admin.moviecol_list', page=1))
+
+
+
+@admin.route("/oplog/list/<int:page>/", methods=["GET"])
+@admin_login_req
+def oplog_list(page):
+    if page is None:
+        page = 1
+    page_data = Oplog.query.join(Admin).filter(
+        Admin.id == Oplog.admin_id
+    ).order_by(
+        Oplog.addtime.desc()
+    ).paginate(page=page, per_page=10)  # 传入分页
+    return render_template("admin/oplog_list.html",page_data=page_data)
 
 
 @admin.route("/adminloginlog/list/")
