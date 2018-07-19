@@ -130,7 +130,7 @@ class Role(db.Model):
     name = db.Column(db.String(100), unique=True)  # 名称
     auths = db.Column(db.String(600))  # 地址
     addtime = db.Column(db.DateTime, index=True, default=datetime.now)
-
+    roles = db.relationship("Admin", backref='role')
     def __repr__(self):
         return "Role < %r>" % self.name
 
@@ -141,7 +141,7 @@ class Admin(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True)  # 管理员账号
     pwd = db.Column(db.String(100))  # 管理员密码
-    is_super = db.Column(db.SmallInteger)  # 是否为超级管理员 ,0为禅机管理员
+    is_super = db.Column(db.SmallInteger)  # 是否为超级管理员 ,0为超级管理员
     role_id = db.Column(db.Integer, db.ForeignKey('role.id'))
     addtime = db.Column(db.DateTime, index=True, default=datetime.now)
     adminlogs = db.relationship('Adminlog', backref='admin')  # 登录日志外键关系
