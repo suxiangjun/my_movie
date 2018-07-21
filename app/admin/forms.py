@@ -186,8 +186,6 @@ class MovieForm(FlaskForm):
     )
 
 
-
-
 class PreviewForm(FlaskForm):
     title=StringField(
         label="预告",
@@ -286,7 +284,6 @@ class AuthForm(FlaskForm):
             render_kw={
                 "class": "btn-primary",
     })
-
 
 #角色表单
 class RoleForm(FlaskForm):

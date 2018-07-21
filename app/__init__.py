@@ -11,6 +11,7 @@ app.config["SQLALCHEMY_DATABASE_URI"]="mysql+pymysql://movie:123456@127.0.0.1:33
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = True
 app.config["SECRET_KEY"] = 'WQE12ER23531RR4'
 app.config['UP_DIR']=os.path.join(os.path.abspath(os.path.dirname(__file__)),"static/uploads/")
+app.config['FACE_DIR']=os.path.join(os.path.abspath(os.path.dirname(__file__)),"static/uploads/users/")
 app.debug=True
 db = SQLAlchemy(app)
 
